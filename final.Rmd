@@ -1,0 +1,122 @@
+---
+title: "Prediction Assignment Writeup"
+output: html_document
+date: '2022-04-19'
+
+---
+*by Ignat Krukovskiy*
+
+## Overview
+
+In this course project we predict the manner in which people did the exercises. One thing that people regularly do is quantify how  much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+### Preparations
+First we prepare environment for the investigation
+```{r message=FALSE}
+library(knitr)
+library(caret)
+library(rpart)
+library(corrplot)
+library(RColorBrewer)
+library(gbm)
+library(rpart)
+```
+
+Load raw data from working directory
+```{r}
+raw_train <- read.csv("pml-training.csv")
+raw_test <- read.csv("pml-testing.csv")
+```
+
+### Data preprocessing
+
+We split training dataset (raw_train) by 2 datasets: trainig and test (e.g. debug)
+``` {r}
+inTrain  <- createDataPartition(raw_train$classe, p=0.7, list=FALSE)
+train_set <- raw_train[inTrain, ]
+test_set  <- raw_train[-inTrain, ]
+dim(train_set)
+```
+
+The training set contains 160 columns with 13737. Now we exclue columns and observations that don't impact to our model.
+
+Indicate columns with the near zero variance
+``` {r}
+nzv <- nearZeroVar(train_set)
+```
+
+Exclude nzv columns from dataset
+``` {r}
+train_set <- train_set[, -nzv]
+test_set <- test_set[, -nzv]
+dim(train_set)
+```
+
+We see that 53 columns has been excluded since we suppose that zero variance data has no impact to the model.
+
+Then we remove the rows which are mostly NA
+``` {r}
+mostlyNA <- sapply(train_set, function(x){ 
+  mean(is.na(x)) > .95
+  })
+train_set <- train_set[, mostlyNA == FALSE]
+test_set <- test_set[, mostlyNA == FALSE]
+dim(train_set)
+```
+Only 59 columns left that have impact to the model
+``` {r}
+train_set <- train_set[, -(1:5)]
+test_set <- test_set[, -(1:5)]
+names(train_set)
+```
+
+### Exploratory analysis
+Now we gonna find correlations between variables
+``` {r}
+corMatrix <- cor(train_set[, -54])
+corrplot(corMatrix, order = "hclust", method = "color", type = "upper", 
+         col=brewer.pal(n=8, name="RdYlBu"))
+```
+The density plot indicates correlations between variables
+
+### Model fit
+Now we gonna fit two models and compare them
+
+#### 1. Random forest
+Fit the model
+``` {r}
+
+set.seed(111)
+control_forest <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modeled_fit_rf <- train(classe ~ ., data=train_set, method="rf",
+                          trControl=control_forest)
+modeled_fit_rf$finalModel
+```
+Test prediction
+``` {r}
+predict_rf <- predict(modeled_fit_rf, newdata=test_set)
+conf_rf <- confusionMatrix(predict_rf, as.factor(test_set$classe))
+conf_rf
+```
+
+#### 2. # 2. General boosted model
+# Fit the model
+``` {r}
+control_gbm <- trainControl(method = "repeatedcv", number = 4, repeats = 2)
+fit_gbm  <- train(classe ~ ., data=train_set, method = "gbm",
+                    trControl = control_gbm, verbose = FALSE)
+fit_gbm$finalModel
+```
+Test prediction
+``` {r}
+predict_gbm <- predict(fit_gbm, newdata = test_set)
+conf_gbm <- confusionMatrix(predict_gbm, as.factor(test_set$classe))
+conf_gbm
+```
+
+### Conclusion
+As we can see the Random forest model has better accuracy (0.9968 against 0.9884) so we gonna use it to predict test data:
+``` {r}
+predict_final <- predict(modeled_fit_rf, newdata=raw_test)
+predict_final
+```
